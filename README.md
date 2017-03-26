@@ -23,7 +23,7 @@ VMSS Editor is a Python/Tkinter script to manage VM Scale Sets. You can use it t
 
 ### Installation
   1. Install Python 3.x.
-  2. Install the azurerm REST wrappers for Microsoft Azure: pip install azurerm
+  2. Install the latest azurerm REST wrappers for Microsoft Azure: "pip install azurerm". If the azurerm Python library is already installed, do an update, as only the latest version of VMSS Editor is tested with the latest version of azurerm.
   3. Clone or copy this repo. Specifically you need vmsseditor.py, subscription.py, vmss.py, vm.ico and vmssconfig.json.
   4. Register an Azure application, create a service principal and get your tenant id. See "Using vmssdashboard and vmsseditor" below.
   5. Put in values for your application and subscription in vmssconfig.json.
@@ -45,21 +45,4 @@ Here's a 2 minute video demo of the rolling upgrade feature in action..
 
 [![rolling upgrade demo](https://img.youtube.com/vi/LuEzErQF-Io/0.jpg)](https://www.youtube.com/watch?v=LuEzErQF-Io)
 
-
-## VMSS Dashboard - discontinued 
-Dashboard to show Azure VM Scale Set status and properties. 
-
-Note: this tool was an early demo experiment and needs more work in order to comfortably scale to more than 10 or so VMs. In particular it needs to display smaller VM icons, and use a more efficient call to get VM instance views. You might want to consider using the more recent VMSS Editor above instead.
-
-Note: If you like VMSS Dashboards, make sure you also take a look at [ASCii VMSS Dashboard](https://github.com/msleal/asciivmssdashboard) by Marcelo Leal - this is an amazing ASCii based dashboard for monitoring VM Scale Sets, with many more functions than VMSS Dashboard.
-
-
-### Installation
-  1. Install Python 3.x.
-  2. Install the azurerm REST wrappers for Microsoft Azure: pip install azurerm
-  3. Install [pygame](http://www.pygame.org/download.shtml)
-  4. Download the files under [vmssdashboard-old](https://github.com/gbowerman/vmssdashboard/tree/master/vmssdashboard-old).
-  5. Register an Azure application, create a service principal and get your tenant id. See "Using vmssdashboard".
-  6. Put in values for your application, along with your resource group name, and VM Scale Set name in vmssconfig.json.
-  7. Run: python vmssdashboard.py
 

@@ -1,7 +1,6 @@
 import json
-
 import azurerm
-
+from operator import methodcaller
 
 class vmss():
     def __init__(self, vmssname, vmssmodel, subscription_id, access_token):
@@ -17,6 +16,10 @@ class vmss():
         self.location = vmssmodel['location']
         self.nameprefix = vmssmodel['properties']['virtualMachineProfile']['osProfile']['computerNamePrefix']
         self.overprovision = vmssmodel['properties']['overprovision']
+        # see if it's a template spanning scale set'
+        self.singlePlacementGroup = True
+        if 'singlePlacementGroup' in vmssmodel['properties']:
+            self.singlePlacementGroup = vmssmodel['properties']['singlePlacementGroup']
         self.tier = vmssmodel['sku']['tier']
         self.upgradepolicy = vmssmodel['properties']['upgradePolicy']['mode']
         self.vmsize = vmssmodel['sku']['name']
@@ -27,9 +30,8 @@ class vmss():
             self.offer = vmssmodel['properties']['virtualMachineProfile']['storageProfile']['imageReference']['offer']
             self.sku = vmssmodel['properties']['virtualMachineProfile']['storageProfile']['imageReference']['sku']
             self.version = vmssmodel['properties']['virtualMachineProfile']['storageProfile']['imageReference']['version']
-        # else it's a custom image it will have an image URI - to do: add something to display the image URI
+        # else it's a custom image it will have an image URI 
         else:
-            # for now just set these values so it doesn't break
             self.image_type = 'custom'
             self.offer = vmssmodel['properties']['virtualMachineProfile']['storageProfile']['osDisk']['osType']
             self.sku = 'custom'
@@ -88,8 +90,8 @@ class vmss():
     # set the VMSS to a new capacity
     def scale(self, capacity):
         self.model['sku']['capacity'] = capacity
-        scaleoutput = azurerm.scale_vmss(self.access_token, self.sub_id, self.rgname, self.name, self.vmsize, self.tier,
-                                         capacity)
+        scaleoutput = azurerm.scale_vmss(self.access_token, self.sub_id, self.rgname, self.name, self.vmsize, 
+            self.tier, capacity)
         self.status = scaleoutput
 
     # power on all the VMs in the scale set
@@ -116,8 +118,25 @@ class vmss():
         # get an instance view list in order to build a heatmap
         self.vm_instance_view = \
             azurerm.list_vmss_vm_instance_view(self.access_token, self.sub_id, self.rgname, self.name)
+        # print('Counted instances: ' + str(len(self.vm_instance_view['value'])))
+        # print(json.dumps(self.vm_instance_view, sort_keys=False, indent=2, separators=(',', ': ')))
 
-    # operations on individual VMs or groups of VMs in a scale set
+
+    # grow the VMSS instance view by one page (calls paginated list instance view fn one time)
+    def grow_vm_instance_view(self, link=None):
+        # get an instance view list in order to build a heatmap
+        if link == None:
+            self.vm_instance_view = \
+                azurerm.list_vmss_vm_instance_view_pg(self.access_token, self.sub_id, self.rgname, self.name)
+        else:
+            instance_page = azurerm.list_vmss_vm_instance_view_pg(self.access_token, self.sub_id, self.rgname, self.name, link)
+            if 'nextLink' in instance_page:
+                self.vm_instance_view['nextLink'] = instance_page['nextLink']
+            else:
+                del(self.vm_instance_view['nextLink'])     
+            self.vm_instance_view['value'].extend(instance_page['value'])
+
+
     # operations on individual VMs or groups of VMs in a scale set
     def reimagevm(self, vmstring):
         result = azurerm.reimage_vmss_vms(self.access_token, self.sub_id, self.rgname, self.name, vmstring)
@@ -154,19 +173,41 @@ class vmss():
 
     # create lists of VMs in the scale set by fault domain, update domain, and an all-up
     def set_domain_lists(self):
-        self.fd_dict = {f: [] for f in range(5)}
-        self.ud_dict = {u: [] for u in range(5)}
-        self.vm_list = []
+        # sort the list of VM instance views by group id
+        self.pg_list = []
+        if self.singlePlacementGroup == False:
+            self.vm_instance_view['value'] = sorted(self.vm_instance_view['value'], \
+                key=lambda k: k['properties']['instanceView']['placementGroupId'])
+            last_group_id = self.vm_instance_view['value'][0]['properties']['instanceView']['placementGroupId']
+        else: 
+            last_group_id = "single group"
+        # now create a list of group id + FD/UD list objects
+        # each time group id changes append a new value to the list
+        fd_dict = {f: [] for f in range(5)}
+        ud_dict = {u: [] for u in range(5)}
+        vm_list = []
         for instance in self.vm_instance_view['value']:
             try:
+                # when group Id changes, load fd/ud/vm dictionaries into the placement group list
+                # may need to change this to copy by value
+                # debug: print(json.dumps(instance))
+                if self.singlePlacementGroup == False:
+                    if instance['properties']['instanceView']['placementGroupId'] != last_group_id:
+                        self.pg_list.append({'guid': last_group_id, 'fd_dict': fd_dict, 'ud_dict': ud_dict, 'vm_list': vm_list})
+                        fd_dict = {f: [] for f in range(5)}
+                        ud_dict = {u: [] for u in range(5)}
+                        vm_list = []
+                        last_group_id = instance['properties']['instanceView']['placementGroupId']
                 instanceId = instance['instanceId']
                 ud = instance['properties']['instanceView']['platformUpdateDomain']
                 fd = instance['properties']['instanceView']['platformFaultDomain']
                 power_state = self.get_power_state(instance['properties']['instanceView']['statuses'])
-                self.ud_dict[ud].append([instanceId, power_state])
-                self.fd_dict[fd].append([instanceId, power_state])
-                self.vm_list.append([instanceId, fd, ud, power_state])
+                ud_dict[ud].append([instanceId, power_state])
+                fd_dict[fd].append([instanceId, power_state])
+                vm_list.append([instanceId, fd, ud, power_state])
             except KeyError:
                 print('KeyError - UD/FD may not be assigned yet. Instance view: ' + json.dumps(instance))
                 break
+        self.pg_list.append({'guid': last_group_id, 'fd_dict': fd_dict, 'ud_dict': ud_dict, 'vm_list': vm_list})
+
 
